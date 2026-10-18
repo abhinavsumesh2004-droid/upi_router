@@ -21,6 +21,7 @@ jobs:
           cp pubspec.yaml app_build/pubspec.yaml
           cp -r lib/. app_build/lib/
           sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA"/><queries><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="upi"/></intent></queries><application|' app_build/android/app/src/main/AndroidManifest.xml
+          sed -i 's|android:label="upi_router"|android:label="PayLane"|' app_build/android/app/src/main/AndroidManifest.xml
           cd app_build
           flutter pub get
           flutter build apk --release

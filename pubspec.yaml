@@ -1,5 +1,5 @@
 name: upi_router
-description: Scan a UPI QR, detect merchant, route to the UPI app of your choice.
+description: PayLane - scan a UPI QR, detect merchant, open your UPI app selector.
 publish_to: none
 version: 1.0.0+1
 
