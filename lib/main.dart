@@ -69,22 +69,30 @@ class _ScanPageState extends State<ScanPage> {
       body: raw == null ? _scanner() : _result(),
     );
   }
-  Widget _scanner() => MobileScanner(
-        errorBuilder: (context, error, child) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              'Camera error: ${error.errorCode.name}\n${error.errorDetails?.message ?? ''}',
-                            style: const TextStyle(color: Colors.red, fontSize: 18),,
-              textAlign: TextAlign.center,
-            ),
+
+  Widget _scanner() {
+    return MobileScanner(
+      errorBuilder: (context, error, child) {
+        final code = error.errorCode.name;
+        final details = error.errorDetails?.message ?? '';
+        final msg = 'Camera error: $code\n$details';
+        return Container(
+          color: Colors.white,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            msg,
+            style: const TextStyle(color: Colors.red, fontSize: 18),
+            textAlign: TextAlign.center,
           ),
-        ),
-        onDetect: (capture)  {
-          final value = capture.barcodes.firstOrNull?.rawValue;
-          if (value != null && raw == null) setState(() => raw = value);
-        },
-      );
+        );
+      },
+      onDetect: (capture) {
+        final value = capture.barcodes.firstOrNull?.rawValue;
+        if (value != null && raw == null) setState(() => raw = value);
+      },
+    );
+  }
 
   Widget _result() {
     if (!isUpi) {
