@@ -1,0 +1,30 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Create Android scaffold and build
+        run: |
+          flutter create --platforms=android --project-name upi_router app_build
+          cp pubspec.yaml app_build/pubspec.yaml
+          cp -r lib/. app_build/lib/
+          sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA"/><queries><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="upi"/></intent></queries><application|' app_build/android/app/src/main/AndroidManifest.xml
+          cd app_build
+          flutter pub get
+          flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upi-router-apk
+          path: app_build/build/app/outputs/flutter-apk/app-release.apk

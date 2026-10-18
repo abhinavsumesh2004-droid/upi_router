@@ -1,0 +1,16 @@
+name: upi_router
+description: Scan a UPI QR, detect merchant, route to the UPI app of your choice.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mobile_scanner: ^5.2.3
+  android_intent_plus: ^5.2.0
+
+flutter:
+  uses-material-design: true
