@@ -69,9 +69,18 @@ class _ScanPageState extends State<ScanPage> {
       body: raw == null ? _scanner() : _result(),
     );
   }
-
   Widget _scanner() => MobileScanner(
-        onDetect: (capture) {
+        errorBuilder: (context, error, child) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Camera error: ${error.errorCode.name}\n${error.errorDetails?.message ?? ''}',
+              style: const TextStyle(color: Colors.white),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+        onDetect: (capture)  {
           final value = capture.barcodes.firstOrNull?.rawValue;
           if (value != null && raw == null) setState(() => raw = value);
         },
