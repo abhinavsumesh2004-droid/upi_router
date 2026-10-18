@@ -75,7 +75,7 @@ class _ScanPageState extends State<ScanPage> {
             padding: const EdgeInsets.all(24),
             child: Text(
               'Camera error: ${error.errorCode.name}\n${error.errorDetails?.message ?? ''}',
-              style: const TextStyle(color: Colors.white),
+                            style: const TextStyle(color: Colors.red, fontSize: 18),,
               textAlign: TextAlign.center,
             ),
           ),
