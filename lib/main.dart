@@ -1,5 +1,6 @@
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 void main() => runApp(const MyApp());
@@ -65,23 +66,33 @@ class _ScanPageState extends State<ScanPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('UPI Router')),
+      appBar: AppBar(
+        title: const Text('UPI Router'),
+        actions: [
+          IconButton(
+            tooltip: 'Paste UPI link',
+            icon: const Icon(Icons.content_paste),
+            onPressed: () async {
+              final data = await Clipboard.getData('text/plain');
+              final text = data?.text?.trim();
+              if (text != null && text.isNotEmpty) setState(() => raw = text);
+            },
+          ),
+        ],
+      ),
       body: raw == null ? _scanner() : _result(),
     );
   }
 
   Widget _scanner() {
     return MobileScanner(
-      errorBuilder: (context, error, child) {
-        final code = error.errorCode.name;
-        final details = error.errorDetails?.message ?? '';
-        final msg = 'Camera error: $code\n$details';
+      errorBuilder: (context, error, [child]) {
         return Container(
           color: Colors.white,
           alignment: Alignment.center,
           padding: const EdgeInsets.all(24),
           child: Text(
-            msg,
+            'Camera error: $error',
             style: const TextStyle(color: Colors.red, fontSize: 18),
             textAlign: TextAlign.center,
           ),
