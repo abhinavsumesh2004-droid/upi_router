@@ -33,3 +33,20 @@
 Edit the `upiApps` list at the top of lib/main.dart (name + Android package).
 PayLane must open a specific app with the original UPI URL. A generic
 system chooser is what made GPay/PhonePe fail the same QR.
+
+## How the QR payload is handed to the UPI app
+NPCI wants the scanned payload forwarded untouched, so PayLane does not
+re-encode it:
+
+* A merchant QR's `sign` is a base64 signature over the literal query
+  string. Rewriting it (turning `+` into `%2B`, for example) stops the
+  payer's PSP from decoding it and the bank rejects the debit as a
+  tampered request. PayLane now sends the payload byte for byte.
+* Text wrapped around the link (Bharat QR, WhatsApp shares) is cut off
+  after the `sign`, and spaces inside a parameter value are kept.
+* `mode` and `orgid` are added only to unsigned payloads, and `mode` stays
+  `01` (QR Code). NPCI's risk engine declines intent initiated
+  transactions (`04`/`05`) against merchant QR payees and person to person
+  payments, which is what a bank reports as a rejected request.
+* The exact payload that is sent is printed to logcat as
+  `PayLane -> <package>: <payload>`.
