@@ -12,10 +12,24 @@
 3. Replace pubspec.yaml and lib/main.dart with the ones here.
 4. In android/app/src/main/AndroidManifest.xml add, just above <application:
    <uses-permission android:name="android.permission.CAMERA"/>
-   <queries><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="upi"/></intent></queries>
+   <queries>
+     <intent>
+       <action android:name="android.intent.action.VIEW"/>
+       <data android:scheme="upi" android:host="pay"/>
+     </intent>
+     <package android:name="com.google.android.apps.nbu.paisa.user"/>
+     <package android:name="com.phonepe.app"/>
+     <package android:name="net.one97.paytm"/>
+     <package android:name="in.org.npci.upiapp"/>
+     <package android:name="com.dreamplug.androidapp"/>
+     <package android:name="in.amazon.mShop.android.shopping"/>
+     <package android:name="com.whatsapp"/>
+   </queries>
 5. Plug in phone (USB debugging on) and run: flutter run
    Or build the APK: flutter build apk --release
    -> build/app/outputs/flutter-apk/app-release.apk
 
-## Customising offers
-Edit the `upiApps` list at the top of lib/main.dart.
+## Customising UPI apps
+Edit the `upiApps` list at the top of lib/main.dart (name + Android package).
+PayLane must open a specific app with the original UPI URL. A generic
+system chooser is what made GPay/PhonePe fail the same QR.

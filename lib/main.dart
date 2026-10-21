@@ -1,4 +1,5 @@
 import 'package:android_intent_plus/android_intent.dart';
+import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -6,6 +7,24 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 const appName = 'PayLane';
 const _accent = Color(0xFF00D4AA);
 const _violet = Color(0xFF6C63FF);
+
+class UpiApp {
+  const UpiApp(this.name, this.package);
+  final String name;
+  final String package;
+}
+
+/// Launch these with an explicit package. A generic Android chooser is what
+/// made GPay/PhonePe reject the same QR as a failed/tampered payment.
+const upiApps = <UpiApp>[
+  UpiApp('Google Pay', 'com.google.android.apps.nbu.paisa.user'),
+  UpiApp('PhonePe', 'com.phonepe.app'),
+  UpiApp('Paytm', 'net.one97.paytm'),
+  UpiApp('BHIM', 'in.org.npci.upiapp'),
+  UpiApp('CRED', 'com.dreamplug.androidapp'),
+  UpiApp('Amazon Pay', 'in.amazon.mShop.android.shopping'),
+  UpiApp('WhatsApp', 'com.whatsapp'),
+];
 
 void main() => runApp(const PayLaneApp());
 
@@ -48,10 +67,37 @@ const _mccNames = <String, String>{
 };
 
 class UpiInfo {
-  UpiInfo(this.raw) : params = _parse(raw);
+  UpiInfo(String scanned)
+      : raw = extractUpi(scanned),
+        params = _parse(extractUpi(scanned));
 
   final String raw;
   final Map<String, String> params;
+
+  /// Keep the UPI URL intact. Bharat QR payloads may wrap it.
+  static String extractUpi(String scanned) {
+    final trimmed = scanned.trim();
+    final lower = trimmed.toLowerCase();
+    final i = lower.indexOf('upi://');
+    if (i < 0) return trimmed;
+    var url = trimmed.substring(i);
+    final whitespace = url.indexOf(RegExp(r'\s'));
+    if (whitespace > 0) url = url.substring(0, whitespace);
+    return url;
+  }
+
+  /// Android treats '+' in query values as space. That corrupts the Base64
+  /// `sign` on merchant QRs and PSPs then fail the payment as tampered.
+  static String launchUri(String raw) {
+    final match = RegExp(r'([?&]sign=)([^&]*)', caseSensitive: false)
+        .firstMatch(raw);
+    if (match == null) return raw;
+    final encoded = match.group(2)!
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('+', '%2B');
+    return raw.replaceRange(
+        match.start + match.group(1)!.length, match.end, encoded);
+  }
 
   static Map<String, String> _parse(String raw) {
     final i = raw.indexOf('?');
@@ -143,15 +189,35 @@ class _ScanPageState extends State<ScanPage>
     } catch (_) {}
   }
 
-  Future<void> _openChooser(String raw) async {
-    try {
-      await AndroidIntent(action: 'action_view', data: raw)
-          .launchChooser('Pay with');
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open the UPI app selector')),
+  AndroidIntent _payIntent(String uri, [String? package]) => AndroidIntent(
+        action: 'action_view',
+        data: uri,
+        package: package,
+        flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
       );
+
+  Future<void> _pay(String raw, [String? package]) async {
+    final uri = UpiInfo.launchUri(raw);
+    try {
+      final intent = _payIntent(uri, package);
+      if (package == null) {
+        await intent.launchChooser('Pay with');
+      } else {
+        await intent.launch();
+      }
+    } catch (_) {
+      try {
+        await _payIntent(uri).launchChooser('Pay with');
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(package == null
+                ? 'Could not open a UPI app'
+                : 'Could not open that app. Is it installed?'),
+          ),
+        );
+      }
     }
   }
 
@@ -164,7 +230,13 @@ class _ScanPageState extends State<ScanPage>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => ResultSheet(info: info, onChoose: () => _openChooser(value)),
+      builder: (_) => ResultSheet(
+        info: info,
+        onPay: (package) async {
+          Navigator.of(context).pop();
+          await _pay(info.raw, package);
+        },
+      ),
     );
     await Future.delayed(const Duration(milliseconds: 800));
     _busy = false;
@@ -406,10 +478,10 @@ class ScanOverlay extends CustomPainter {
 // ---------------------------------------------------------------------------
 
 class ResultSheet extends StatelessWidget {
-  const ResultSheet({super.key, required this.info, required this.onChoose});
+  const ResultSheet({super.key, required this.info, required this.onPay});
 
   final UpiInfo info;
-  final VoidCallback onChoose;
+  final Future<void> Function(String? package) onPay;
 
   @override
   Widget build(BuildContext context) {
@@ -444,7 +516,8 @@ class ResultSheet extends StatelessWidget {
       ),
       padding: EdgeInsets.fromLTRB(
           24, 12, 24, 20 + MediaQuery.of(context).viewPadding.bottom),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
@@ -510,17 +583,31 @@ class ResultSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onChoose,
-              icon: const Icon(Icons.account_balance_wallet_rounded),
-              label: const Text('Choose UPI app'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                textStyle:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Pay with',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurfaceVariant)),
+            ),
+            const SizedBox(height: 10),
+            ...upiApps.map(
+              (app) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: FilledButton.tonal(
+                  onPressed: () => onPay(app.package),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: Text(app.name),
+                ),
               ),
+            ),
+            TextButton(
+              onPressed: () => onPay(null),
+              child: const Text('Other UPI apps'),
             ),
           ],
           const SizedBox(height: 8),
@@ -535,6 +622,7 @@ class ResultSheet extends StatelessWidget {
             style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
           ),
         ],
+        ),
       ),
     );
   }
