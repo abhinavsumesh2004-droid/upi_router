@@ -67,9 +67,11 @@ const _mccNames = <String, String>{
 };
 
 class UpiInfo {
-  UpiInfo(String scanned)
-      : raw = extractUpi(scanned),
-        params = _parse(extractUpi(scanned));
+  UpiInfo(String scanned) : this._(extractUpi(scanned));
+
+  UpiInfo._(String payload)
+      : raw = payload,
+        params = _parse(payload);
 
   final String raw;
   final Map<String, String> params;
@@ -77,27 +79,107 @@ class UpiInfo {
   /// Keep the UPI URL intact. Bharat QR payloads may wrap it.
   static String extractUpi(String scanned) {
     final trimmed = scanned.trim();
-    final lower = trimmed.toLowerCase();
-    final i = lower.indexOf('upi://');
+    final i = trimmed.toLowerCase().indexOf('upi://');
     if (i < 0) return trimmed;
-    var url = trimmed.substring(i);
-    final whitespace = url.indexOf(RegExp(r'\s'));
-    if (whitespace > 0) url = url.substring(0, whitespace);
-    return url;
+    return _trimPayload(trimmed.substring(i));
   }
 
-  /// Android treats '+' in query values as space. That corrupts the Base64
-  /// `sign` on merchant QRs and PSPs then fail the payment as tampered.
-  static String launchUri(String raw) {
-    final match = RegExp(r'([?&]sign=)([^&]*)', caseSensitive: false)
-        .firstMatch(raw);
-    if (match == null) return raw;
-    final encoded = match.group(2)!
-        .replaceAll(RegExp(r'\s+'), '')
-        .replaceAll('+', '%2B');
-    return raw.replaceRange(
-        match.start + match.group(1)!.length, match.end, encoded);
+  /// Drops whatever the QR put around the payload itself.
+  ///
+  /// A signed payload ends with its base64 `sign`, so anything behind that
+  /// is text. An unsigned payload ends at the first line break or at the
+  /// first space that sits between two parameters. A space inside a value is
+  /// kept, it belongs to the payee name or the note.
+  static String _trimPayload(String url) {
+    final q = url.indexOf('?');
+    if (q < 0) return url.trimRight();
+
+    final sign =
+        RegExp(r'([?&]sign=)([^&]*)', caseSensitive: false).firstMatch(url);
+    if (sign != null) {
+      final value = sign.group(2)!;
+      var end = 0;
+      while (end < value.length && _isSignChar(value.codeUnitAt(end))) {
+        end++;
+      }
+      final cut = sign.start + sign.group(1)!.length + end;
+      final tail = url.substring(cut);
+      // Parameters behind `sign` are kept, only trailing text is dropped.
+      return tail.isEmpty || _isSpace(tail.codeUnitAt(0))
+          ? url.substring(0, cut)
+          : url;
+    }
+
+    var inValue = false;
+    for (var i = q + 1; i < url.length; i++) {
+      final c = url.codeUnitAt(i);
+      if (c == 0x26) {
+        inValue = false;
+      } else if (c == 0x3D) {
+        inValue = true;
+      } else if (c == 0x0A || c == 0x0D) {
+        return url.substring(0, i);
+      } else if (!inValue && _isSpace(c)) {
+        return url.substring(0, i);
+      }
+    }
+    return url.trimRight();
   }
+
+  /// The payload handed over to the UPI app.
+  ///
+  /// NPCI expects the scanned payload to be forwarded untouched. On merchant
+  /// QRs the `sign` is a base64 signature over the literal query string, so
+  /// re-encoding it (turning '+' into '%2B' for example) makes the payer's
+  /// PSP treat the request as tampered and the bank declines the debit.
+  ///
+  /// The only tags that get added are the ones NPCI marks mandatory for a
+  /// dynamic payload, and only when the QR carries no signature. `mode`
+  /// stays a QR mode (01): NPCI's risk engine declines intent initiated
+  /// transactions (04/05) against merchant QR payees and person to person
+  /// payments, which is what the bank reports as a rejected request.
+  static String launchUri(String raw) {
+    if (_hasParam(raw, 'sign')) return raw;
+
+    final extra = <String>[];
+    if (!_hasParam(raw, 'mode')) extra.add('mode=01');
+    if (!_hasParam(raw, 'orgid')) extra.add('orgid=000000');
+    if (extra.isEmpty) return raw;
+
+    return '$raw${raw.contains('?') ? '&' : '?'}${extra.join('&')}';
+  }
+
+  static bool _hasParam(String url, String key) {
+    final q = url.indexOf('?');
+    if (q < 0) return false;
+    for (final part in url.substring(q + 1).split('&')) {
+      final eq = part.indexOf('=');
+      final name = eq < 0 ? part : part.substring(0, eq);
+      if (name.toLowerCase() == key) return true;
+    }
+    return false;
+  }
+
+  /// Base64 of the `sign` tag plus the percent escapes it may use.
+  static bool _isSignChar(int c) =>
+      (c >= 0x41 && c <= 0x5A) || // A-Z
+      (c >= 0x61 && c <= 0x7A) || // a-z
+      (c >= 0x30 && c <= 0x39) || // 0-9
+      c == 0x2B || // +
+      c == 0x2F || // /
+      c == 0x3D || // =
+      c == 0x25 || // % (percent encoded)
+      c == 0x2D || // - (base64url)
+      c == 0x5F; // _ (base64url)
+
+  static bool _isSpace(int c) =>
+      c == 0x20 ||
+      c == 0x09 ||
+      c == 0x0A ||
+      c == 0x0B ||
+      c == 0x0C ||
+      c == 0x0D ||
+      c == 0xA0;
 
   static Map<String, String> _parse(String raw) {
     final i = raw.indexOf('?');
@@ -109,7 +191,7 @@ class UpiInfo {
       final key = eq < 0 ? part : part.substring(0, eq);
       var value = eq < 0 ? '' : part.substring(eq + 1);
       try {
-        value = Uri.decodeComponent(value);
+        value = Uri.decodeQueryComponent(value);
       } catch (_) {}
       out[key.toLowerCase()] = value;
     }
@@ -198,6 +280,7 @@ class _ScanPageState extends State<ScanPage>
 
   Future<void> _pay(String raw, [String? package]) async {
     final uri = UpiInfo.launchUri(raw);
+    debugPrint('PayLane -> ${package ?? 'chooser'}: $uri');
     try {
       final intent = _payIntent(uri, package);
       if (package == null) {
